@@ -4,7 +4,7 @@ import { TokenValidator } from '../libs/tokenValidator.js';
 
 const router = Router()
 
-router.post('/api/signup', signup)
+router.post('/api/register', signup)
 
 router.post('/api/login', login)
 
