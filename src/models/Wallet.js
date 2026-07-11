@@ -79,6 +79,7 @@ const walletSchema = new Schema({
         },
     },
     withdrawalRequests: [{
+        status: { type: String, enum: ['requested', 'approved', 'paid', 'rejected'], default: 'requested' },
         amountCoins: {
             type: Number, required: true, trim: true
         },

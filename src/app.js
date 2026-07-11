@@ -23,6 +23,10 @@ import notificationsRoute from "./routes/notifications.routes.js"
 import adminRoute from './routes/admin.routes.js'
 import storiesRoute from './routes/stories.routes.js'
 import { removeExpiredStoryFiles } from './controllers/stories/stories.controller.js'
+import pushRoute from './routes/push.routes.js'
+import callsRoute from './routes/calls.routes.js'
+import webhooksRoute from './routes/webhooks.routes.js'
+import { billActiveCalls } from './services/callBilling.service.js'
 
 dotenv.config()
 
@@ -146,11 +150,16 @@ app.use(moderationRoute)
 app.use(notificationsRoute)
 app.use(adminRoute)
 app.use(storiesRoute)
+app.use(pushRoute)
+app.use(callsRoute)
+app.use(webhooksRoute)
 
 const storyCleanupTimer = setInterval(() => {
   removeExpiredStoryFiles().catch(error => console.error('No se pudieron limpiar historias expiradas', error))
 }, 15 * 60 * 1000)
 storyCleanupTimer.unref?.()
+const callBillingTimer = setInterval(() => billActiveCalls().catch(error => console.error('Error facturando llamadas', error)), 15000)
+callBillingTimer.unref?.()
 
 // Error handler
 const errorHandler = (error, req, res, next) => {

@@ -62,7 +62,7 @@ test('wallet credit rejects invalid and unverifiable purchases', async () => {
     coinsPurchased: 0,
     price: 0
   }, true)
-  assert.equal(response.status, 400)
+  assert.equal(response.status, 410)
 })
 
 test('profile updates cannot target another user', async () => {
@@ -83,4 +83,19 @@ test('stories require authentication', async () => {
 test('story creation rejects a missing media file before querying the database', async () => {
   const response = await postJson('/api/stories', {}, true)
   assert.equal(response.status, 400)
+})
+
+test('push registration rejects malformed Expo tokens', async () => {
+  const response = await postJson('/api/push-token', { token: 'invalid' }, true)
+  assert.equal(response.status, 400)
+})
+
+test('call creation rejects a missing receiver before querying the database', async () => {
+  const response = await postJson('/api/calls', {}, true)
+  assert.equal(response.status, 400)
+})
+
+test('RevenueCat webhook requires its configured authorization', async () => {
+  const response = await postJson('/api/webhooks/revenuecat', { event: {} })
+  assert.equal(response.status, 401)
 })

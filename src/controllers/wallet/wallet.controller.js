@@ -4,6 +4,7 @@ import Publication from '../../models/Publication.js'
 import { addMessage } from '../chat/chat.controller.js'
 import { transporter } from "../../libs/nodemailer.js";
 import { addNotification } from '../notifications/notifications.controller.js'
+import { sendPushSafely } from '../../services/push.service.js'
 
 export const createWithdrawalRequest = async (req, res, next) => {
     try {
@@ -36,6 +37,7 @@ export const createWithdrawalRequest = async (req, res, next) => {
             // comision,
         })
         await wallet.save()
+        await sendPushSafely(user._id, { title: 'Retiro solicitado', body: 'Recibimos tu solicitud de retiro', data: { type: 'withdrawal_status', status: 'requested' } })
         await transporter.sendMail({
             from: 'joeljuliandurand@gmail.com',
             to: `${user?.email}`,
@@ -142,6 +144,7 @@ export const buyContentById = async (req, res, next) => {
             addNotification(creatorContent._id, notificationData)
         ])
         if(buyContentIsSuccess) {
+            await sendPushSafely(creatorContent._id, { title: 'Contenido desbloqueado', body: userBuyer.userName + ' desbloqueó tu publicación por ' + postToBuy.price + ' monedas', data: { type: 'content_purchase', postId: postToBuy._id.toString() } })
             console.log("buyContentIsSuccess:", buyContentIsSuccess)
             return res.status(200).json({ message: "Contenido desbloqueado!" })
         }
@@ -155,7 +158,7 @@ export const buyContentById = async (req, res, next) => {
 
 export const sendPaidMessage = async (req, res, next) => {
   try {
-      const {userId, priceMessage, receivePaidMessage, chatId, senderId, remitterId, text} = req.body
+      const {userId, chatId, senderId, remitterId, text, contextType, storyId} = req.body
 
       const userSenderPaidMessage = await User.findById(req.userId)
       if(!userSenderPaidMessage) {
@@ -164,8 +167,13 @@ export const sendPaidMessage = async (req, res, next) => {
       if (senderId?.toString() !== req.userId.toString()) {
           return res.status(403).json({ message: "El remitente no coincide con la sesión" })
       }
+      const recipient = await User.findById(userId || remitterId)
+      if (!recipient) return res.status(404).json({ message: 'Usuario destinatario no encontrado' })
+      const isPaidMessage = Boolean(recipient.receivePaidMessage)
+      const serverPrice = Number(recipient.priceMessage) || 0
       
-    if(receivePaidMessage === false) {
+    if(!isPaidMessage) {
+        await sendPushSafely(recipient._id, { title: contextType === 'story_reply' ? 'Respuesta a tu historia' : 'Mensaje nuevo', body: contextType === 'story_reply' ? userSenderPaidMessage.userName + ' respondió tu historia' : userSenderPaidMessage.userName + ' te envió un mensaje', data: { type: contextType === 'story_reply' ? 'story_reply' : 'message', chatId, senderId: userSenderPaidMessage._id.toString(), storyId } })
         await addMessage(chatId, senderId, remitterId, text, res)
     } else {
     
@@ -178,7 +186,7 @@ export const sendPaidMessage = async (req, res, next) => {
             return res.status(400).json({message: "No se ha encontrado tu billetera"})
         }
         
-        const normalizedPrice = Number(priceMessage)
+        const normalizedPrice = serverPrice
         if(!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
             return res.status(400).json({ message: "Precio de mensaje inválido" })
         }
@@ -186,15 +194,11 @@ export const sendPaidMessage = async (req, res, next) => {
             return res.status(400).json({message: "No tienes fondos suficientes"})
         }
         
-        const userReceiveCoinsForMessage = await User.findById({ _id: userId })
+        const userReceiveCoinsForMessage = recipient
         if(!userReceiveCoinsForMessage) {
         return res.status(400).json({message: "No se ha encontrado al usuario recibidor de las monedas"})
     }
     
-    if(normalizedPrice !== userReceiveCoinsForMessage.priceMessage) {
-        return res.status(400).json({message: "Los precios por mensaje no coinciden."})
-    }
-
     const ReceivingUserWallet = await Wallet.findOne({ user: userId })
     if (!ReceivingUserWallet) {
         return res.status(400).json({message: "No se ha encontrado la billetera del usuario receptor de monedas"})
@@ -218,7 +222,7 @@ export const sendPaidMessage = async (req, res, next) => {
     const notificationData = {
         userName: userSenderPaidMessage.userName,
         profilePic: userSenderPaidMessage.profilePicture,
-        event: `te ha enviado un mensaje por ${priceMessage} moneda${priceMessage === 1
+        event: `te ha enviado un mensaje por ${normalizedPrice} moneda${normalizedPrice === 1
             ? null
             : "s"}`,
             link: userSenderPaidMessage._id,
@@ -233,6 +237,7 @@ export const sendPaidMessage = async (req, res, next) => {
             addNotification(userReceiveCoinsForMessage._id, notificationData)
         ])
         if(transactionSuccess) {
+            await sendPushSafely(userReceiveCoinsForMessage._id, { title: 'Mensaje pago recibido', body: 'Recibiste un mensaje pago de ' + userSenderPaidMessage.userName, data: { type: 'paid_message', chatId, senderId: userSenderPaidMessage._id.toString() } })
             console.log({transactionSuccess})
             await addMessage(chatId, senderId, remitterId, text, res)
         }
@@ -260,6 +265,8 @@ export const getWallet = async (req, res, next) => {
 }
 
 export const updateBalanceWithHistoryPurchases = async (req, res, next) => {
+    return res.status(410).json({ message: 'La acreditación se procesa mediante un webhook verificado.' })
+    /* legacy disabled
     try {
             const { coinsPurchased, price, purchaseId } = req.body
             const normalizedCoins = Number(coinsPurchased)
@@ -299,7 +306,8 @@ export const updateBalanceWithHistoryPurchases = async (req, res, next) => {
           res.status(500).json({ message: error });
           next(error)
       }
-  }
+  } */
+}
 
 export const updateWalletWithPromotion = async (req, res, next) => {
     try {

@@ -70,6 +70,12 @@ const userSchema = new Schema({
   expoPushToken: {
     type: String, trim: false, default: ""
   },
+  pushTokens: [{
+    token: { type: String, required: true },
+    platform: { type: String, enum: ['android', 'ios', 'unknown'], default: 'unknown' },
+    deviceId: { type: String },
+    updatedAt: { type: Date, default: Date.now },
+  }],
   publications: [
     {
       type: Schema.Types.ObjectId,

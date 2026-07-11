@@ -1,5 +1,6 @@
 import axios from "axios"
 import Wallet from "../../models/Wallet.js"
+import { sendPushSafely } from '../../services/push.service.js'
 
 export const webHooks = async (req, res, next) => {
     const { type, data } = req.body
@@ -21,7 +22,10 @@ export const webHooks = async (req, res, next) => {
             }
             console.log("WALLET", wallet)
 
-            if (wallet.balance !== null) wallet.balance = compra.data.metadata.coins_quantity
+            const coins = Number(compra.data.metadata.coins_quantity)
+            const purchaseId = String(compra.data.id)
+            if (wallet.historyPurchases.some(item => item.purchaseId === purchaseId)) return res.status(200).send('ok')
+            wallet.balance += coins
             if (compra.data.metadata.coins_quantity === 300 && wallet.promotionUsed !== null) {
                 wallet.promotionUsed = true
             }
@@ -30,8 +34,10 @@ export const webHooks = async (req, res, next) => {
                 amount: compra.data.metadata.coins_quantity,
                 date: new Date(),
                 completed: true,
+                purchaseId,
             })
             await wallet.save()
+            await sendPushSafely(compra.data.metadata.user_buyer, { title: 'Saldo acreditado', body: coins + ' monedas fueron acreditadas a tu saldo', data: { type: 'balance_credited' } })
         }
         res.status(200).send('ok')
     } catch (error) {
