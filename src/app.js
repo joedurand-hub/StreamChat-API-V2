@@ -21,6 +21,8 @@ import walletRoute from './routes/wallet.routes.js'
 import moderationRoute from './routes/moderation.routes.js'
 import notificationsRoute from "./routes/notifications.routes.js"
 import adminRoute from './routes/admin.routes.js'
+import storiesRoute from './routes/stories.routes.js'
+import { removeExpiredStoryFiles } from './controllers/stories/stories.controller.js'
 
 dotenv.config()
 
@@ -116,6 +118,7 @@ const limiter = rateLimit({
 
 // Settings
 app.set('port', process.env.PORT || 8080)
+app.set('trust proxy', 1)
 
 // Middlewares
 app.use(compression());
@@ -142,6 +145,12 @@ app.use(mercadopagoRoute)
 app.use(moderationRoute)
 app.use(notificationsRoute)
 app.use(adminRoute)
+app.use(storiesRoute)
+
+const storyCleanupTimer = setInterval(() => {
+  removeExpiredStoryFiles().catch(error => console.error('No se pudieron limpiar historias expiradas', error))
+}, 15 * 60 * 1000)
+storyCleanupTimer.unref?.()
 
 // Error handler
 const errorHandler = (error, req, res, next) => {

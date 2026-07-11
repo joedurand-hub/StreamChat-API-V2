@@ -11,14 +11,14 @@ const storage = multer.diskStorage({
     },
     filename: (_req, file, cb) => {
         const extension = path.extname(file.originalname).toLowerCase()
-        cb(null, `${Date.now()}-${randomUUID()}${extension}`)
+        cb(null, `${file.fieldname}-${Date.now()}-${randomUUID()}${extension}`)
     }
 });
 export default multer({
     storage,
     limits: { fileSize: 50 * 1024 * 1024, files: 8 },
     fileFilter: (_req, file, cb) => {
-        const allowed = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')
+        const allowed = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/') || file.mimetype.startsWith('audio/')
         cb(allowed ? null : new Error('Tipo de archivo no permitido'), allowed)
     }
 });

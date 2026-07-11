@@ -2,6 +2,8 @@ import Publication from '../../models/Publication.js'
 import User from "../../models/User.js";
 import fs from "fs-extra"
 import { uploadImage, deleteImage, uploadVideo, deleteVideo } from "../../libs/cloudinary.js";
+import path from 'path'
+import { parseFile } from 'music-metadata'
 // import { CreatePublicationType, GetOrDeletePublicationByIdType } from '../schemas/publications.schema'
 
 export const createPost = async (req, res, next) => {
@@ -65,6 +67,26 @@ export const createPost = async (req, res, next) => {
           }
         }
         publication.video = videoData;
+      }
+
+      const audioFile = req.files?.audio?.[0]
+      if (audioFile) {
+        try {
+          const metadata = await parseFile(audioFile.path)
+          const duration = Number(metadata.format.duration) || 0
+          if (!duration || duration > 60.5) {
+            await fs.remove(audioFile.path)
+            return res.status(400).json({ message: 'El audio debe durar como máximo 1 minuto.' })
+          }
+          publication.audio = {
+            public_id: path.basename(audioFile.path),
+            secure_url: `${req.protocol}://${req.get('host')}/uploads/${path.basename(audioFile.path)}`,
+            duration,
+          }
+        } catch (error) {
+          await fs.remove(audioFile.path)
+          return res.status(400).json({ message: 'No se pudo leer el archivo de audio.' })
+        }
       }
   
       const publicationSaved = await publication.save();
@@ -203,6 +225,10 @@ export const deletePost = async (req, res, next) => {
             ...(post.images || []).map(image => image.public_id).filter(Boolean).map(deleteImage),
             ...(post.video || []).map(video => video.public_id).filter(Boolean).map(deleteVideo)
         ]
+        if (post.audio?.public_id) mediaCleanup.push(fs.remove(path.resolve('uploads', post.audio.public_id)))
+        for (const comment of post.comments || []) {
+            if (comment.audio?.public_id) mediaCleanup.push(fs.remove(path.resolve('uploads', comment.audio.public_id)))
+        }
         await Promise.allSettled(mediaCleanup)
         postInUser.publications = postInUser.publications.filter(postId => id.toString() !== postId.toString())
         await postInUser.save()
@@ -217,15 +243,35 @@ export const deletePost = async (req, res, next) => {
 export const commentPost = async (req, res, next) => {
     try {
         const { value, id } = req.body
+        const audioFile = req.files?.audio?.[0]
         const user = await User.findById(req.userId)
         const userName = user?.userName
         if (!user) return res.status(401).json({ message: "Usuario no encontrado" })
         if (!id) return res.status(400).json({ message: "Publicación requerida" })
-        if (typeof value !== 'string' || !value.trim()) return res.status(400).json("El comentario no puede estar vacío")
-        if (value.length > 500) return res.status(400).json("El comentario no puede superar los 500 caracteres")
+        if ((!value || !value.trim()) && !audioFile) return res.status(400).json("El comentario no puede estar vacío")
+        if (value?.length > 500) return res.status(400).json("El comentario no puede superar los 500 caracteres")
         const post = await Publication.findById({ _id: id })
         if (!post) return res.status(404).json({ message: "Publicación no encontrada" })
-        post.comments.push({ value: value.trim(), userName })
+        let audio
+        if (audioFile) {
+            try {
+                const metadata = await parseFile(audioFile.path)
+                const duration = Number(metadata.format.duration) || 0
+                if (!duration || duration > 60.5) {
+                    await fs.remove(audioFile.path)
+                    return res.status(400).json({ message: 'El audio debe durar como máximo 1 minuto.' })
+                }
+                audio = {
+                    public_id: path.basename(audioFile.path),
+                    secure_url: `${req.protocol}://${req.get('host')}/uploads/${path.basename(audioFile.path)}`,
+                    duration,
+                }
+            } catch {
+                await fs.remove(audioFile.path)
+                return res.status(400).json({ message: 'No se pudo leer el archivo de audio.' })
+            }
+        }
+        post.comments.push({ value: value?.trim() || '', userName, audio })
         const updatedPost = await Publication.findByIdAndUpdate(id, post, { new: true })
         res.status(200).json(updatedPost)
     } catch (error) {

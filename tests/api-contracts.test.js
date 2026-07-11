@@ -74,3 +74,13 @@ test('profile updates cannot target another user', async () => {
   })
   assert.equal(response.status, 403)
 })
+
+test('stories require authentication', async () => {
+  const response = await fetch(`${baseUrl}/api/stories`, { signal: AbortSignal.timeout(5000) })
+  assert.equal(response.status, 401)
+})
+
+test('story creation rejects a missing media file before querying the database', async () => {
+  const response = await postJson('/api/stories', {}, true)
+  assert.equal(response.status, 400)
+})

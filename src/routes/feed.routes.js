@@ -13,10 +13,13 @@ router.post('/api/post', TokenValidator, multer.fields([{
 }, {   
     name: 'video',
     maxCount: 1
+}, {
+    name: 'audio',
+    maxCount: 1
 }]), createPost)
 router.post('/api/like/:id', TokenValidator, likePost)
 router.post('/api/dislike/:id', TokenValidator, dislikePost)
-router.post('/api/comment-post', TokenValidator, commentPost)
+router.post('/api/comment-post', TokenValidator, multer.fields([{ name: 'audio', maxCount: 1 }]), commentPost)
 
 router.get('/api/posts', TokenValidator, getAllPostsByFollowings)
 router.get('/api/posts-user', TokenValidator, getAllPostsByUser)

@@ -13,6 +13,11 @@ const publicationSchema = new Schema({
         public_id: String,
         secure_url: String,
     }],
+    audio: {
+        public_id: String,
+        secure_url: String,
+        duration: Number,
+    },
     price: {
         type: Number,  trim: true, default: 0,
     },
@@ -28,6 +33,11 @@ const publicationSchema = new Schema({
     comments: [{
         value: String,
         userName: String,
+        audio: {
+            public_id: String,
+            secure_url: String,
+            duration: Number,
+        },
     }],
     denouncement: [String],
     createdAt: {
