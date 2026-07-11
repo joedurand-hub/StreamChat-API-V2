@@ -93,8 +93,9 @@ export const updateProfile = async (req, res, next) => {
 
     } catch (error) {
         console.log("Error:", error)
-        res.status(500).json(error)
-        next(error)
+        return res.status(error.status || 503).json({
+            message: "No se pudo actualizar la foto de perfil. Conservamos la imagen anterior."
+        })
     }
 }
 

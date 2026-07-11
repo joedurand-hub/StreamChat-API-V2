@@ -7,6 +7,7 @@ import { uploadImage, deleteImage, uploadVideo, deleteVideo } from "../../libs/c
 export const createPost = async (req, res, next) => {
     try {
       const { content, price, checkNSFW, checkExclusive } = req.body;
+      const mediaWarnings = [];
   
       const priceValue = price ? parseInt(price) : 0;
       const user = await User.findById(req.userId, { password: 0 });
@@ -37,7 +38,9 @@ export const createPost = async (req, res, next) => {
             fs.unlinkSync(file.path); // Elimina el archivo temporal
           } catch (error) {
             console.error(`Error subiendo imagen ${file.originalname}:`, error);
-            return res.status(500).json({ error: "Error subiendo imágenes" });
+            mediaWarnings.push("Una imagen no pudo almacenarse y fue omitida");
+          } finally {
+            await fs.remove(file.path);
           }
         }
         publication.images = data;
@@ -56,7 +59,9 @@ export const createPost = async (req, res, next) => {
             fs.unlinkSync(file.path); // Elimina el archivo temporal
           } catch (error) {
             console.error(`Error subiendo video ${file.originalname}:`, error);
-            return res.status(500).json({ error: "Error subiendo video" });
+            mediaWarnings.push("El video no pudo almacenarse y fue omitido");
+          } finally {
+            await fs.remove(file.path);
           }
         }
         publication.video = videoData;
@@ -69,6 +74,7 @@ export const createPost = async (req, res, next) => {
       res.status(201).json({
         success: true,
         publicationSaved: publicationSaved.toObject(),
+        warnings: mediaWarnings,
       });
     } catch (error) {
       console.error("Error al crear publicación:", error);
