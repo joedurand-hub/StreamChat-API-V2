@@ -11,6 +11,7 @@ const walletSchema = new Schema({
         date: { type: Date, default: new Date() },
         price: { type: Number },
         amount: { type: Number },
+        purchaseId: { type: String },
         completed: { type: Boolean, default: false }
     }],
     coinsTransferred: [{

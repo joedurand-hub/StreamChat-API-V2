@@ -171,7 +171,8 @@ export const getPostById = async (req, res, next) => {
         const { id } = req.params
         if (!id) return res.status(404).json({ message: 'No se ha recibido un ID.' });
         const post = await Publication.findById({ _id: id })
-        res.status(200).json(post)
+        if (!post) return res.status(404).json({ message: 'Publicación no encontrada.' })
+        return res.status(200).json(post)
     } catch (error) {
         console.log(error)
         res.status(500).send({ error: error });
@@ -188,18 +189,18 @@ export const deletePost = async (req, res, next) => {
             return res.status(404).json({ message: "No se ha encontrado la publicación" })
         }
         const postInUser = await User.findById({ _id: req.userId })
+        if (!postInUser || post.userIdCreatorPost?.toString() !== req.userId.toString()) {
+            return res.status(403).json({ message: "No podés eliminar esta publicación" })
+        }
         await Publication.deleteOne({ _id: id })
-        if (post.images?.public_id) {
-            await deleteImage(post.images.public_id)
-        }
-        if (post.video?.public_id) {
-            await deleteVideo(post.video.public_id)
-        }
-        if (postInUser !== undefined) {
-            postInUser.publications = postInUser.publications.filter(postId => id.toString() !== postId)
-        }
+        const mediaCleanup = [
+            ...(post.images || []).map(image => image.public_id).filter(Boolean).map(deleteImage),
+            ...(post.video || []).map(video => video.public_id).filter(Boolean).map(deleteVideo)
+        ]
+        await Promise.allSettled(mediaCleanup)
+        postInUser.publications = postInUser.publications.filter(postId => id.toString() !== postId.toString())
         await postInUser.save()
-        res.status(200).json(`Publicación eliminada`)
+        return res.status(200).json({ message: `Publicación eliminada` })
     } catch (error) {
         console.log(error)
         res.status(500).send({ error: error });
@@ -212,10 +213,13 @@ export const commentPost = async (req, res, next) => {
         const { value, id } = req.body
         const user = await User.findById(req.userId)
         const userName = user?.userName
-        if (value === undefined) res.status(400).json("El comentario no puede estar vacío")
-        if (value.length > 500) res.status(400).json("El comentario no puede superar los 500 caracteres")
+        if (!user) return res.status(401).json({ message: "Usuario no encontrado" })
+        if (!id) return res.status(400).json({ message: "Publicación requerida" })
+        if (typeof value !== 'string' || !value.trim()) return res.status(400).json("El comentario no puede estar vacío")
+        if (value.length > 500) return res.status(400).json("El comentario no puede superar los 500 caracteres")
         const post = await Publication.findById({ _id: id })
-        post.comments.push({ value, userName })
+        if (!post) return res.status(404).json({ message: "Publicación no encontrada" })
+        post.comments.push({ value: value.trim(), userName })
         const updatedPost = await Publication.findByIdAndUpdate(id, post, { new: true })
         res.status(200).json(updatedPost)
     } catch (error) {
@@ -230,8 +234,10 @@ export const likePost = async (req, res, next) => {
         const { id } = req.params
         const post = await Publication.findById({ _id: id })
         const user = await User.findById(req.userId)
-        post.likes = post.likes + 1
-        post.liked = post.liked.concat(user._id)
+        if (!post || !user) return res.status(404).json({ message: "Usuario o publicación no encontrados" })
+        if (post.liked.includes(user._id.toString())) return res.status(200).json(post)
+        post.liked.push(user._id.toString())
+        post.likes = post.liked.length
         await post.save()
         console.log(post.liked)
         console.log(post)
@@ -249,12 +255,10 @@ export const dislikePost = async (req, res, next) => {
         console.log(id)
 
         const post = await Publication.findById({ _id: id })
-        const user = req.userId
-        const userId = user?._id
-        post.likes = post.likes - 1
-        post.liked = post.liked.filter(id => {
-            id !== userId
-        })
+        if (!post) return res.status(404).json({ message: "Publicación no encontrada" })
+        const userId = req.userId.toString()
+        post.liked = post.liked.filter(id => id.toString() !== userId)
+        post.likes = post.liked.length
         await post.save()
         res.status(200).json(post.likes)
     } catch (error) {

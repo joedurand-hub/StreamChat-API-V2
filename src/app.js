@@ -146,8 +146,10 @@ app.use(adminRoute)
 // Error handler
 const errorHandler = (error, req, res, next) => {
     console.error(error)
-    res.status(500).json(`Algo ha salido mal: ${error}`)
-    next(error)
+    if (res.headersSent) return next(error)
+    return res.status(error.status || 500).json({
+      message: error.status ? error.message : 'Algo ha salido mal'
+    })
 };
 app.use(errorHandler);
 

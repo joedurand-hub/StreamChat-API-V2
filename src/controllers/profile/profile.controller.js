@@ -2,10 +2,7 @@ import User from '../../models/User.js'
 import Publication from '../../models/Publication.js'
 import fs from "fs-extra"
 import { uploadImage } from "../../libs/cloudinary.js";
-// import {  deleteImage } from "../libs/cloudinary";
 import Wallet from '../../models/Wallet.js';
-// import { UpdateProfileBodyType, ValidateProfileParamsType } from "../schemas/profile.schema";
-// import { GET_REDIS_ASYNC, SET_REDIS_ASYNC } from '../../libs/redis.js';
 
 
 
@@ -69,10 +66,12 @@ export const updateProfile = async (req, res, next) => {
 
         const { id } = req.params
         if (!id) return res.status(400).json({ message: "No se ha recibido un id para actualizar el usuario" })
+        if (id.toString() !== req.userId.toString()) {
+            return res.status(403).json({ message: "No podés modificar otro perfil" })
+        }
 
         const {
             userName, description, birthday, email, firstName, lastName,
-            premium, verified, verificationPay, verificationInProcess,
             viewExplicitContent, phone, gender, expoPushToken, receiveVideocall, priceVideocall,
             receivePaidMessage, priceMessage, country
         } = req.body;
@@ -81,13 +80,15 @@ export const updateProfile = async (req, res, next) => {
         const user = await User.findById(id, { password: 0 })
         if (!user) return res.status(400).json({ message: "No se ha encontrado el usuario" })
 
-        const userUpdated = await User.findOneAndUpdate({ _id: user._id }, {
+        await User.findOneAndUpdate({ _id: user._id }, {
             userName, description, birthday, email, firstName, lastName,
-            premium, verified, verificationPay, verificationInProcess,
             viewExplicitContent, phone, gender, expoPushToken, receiveVideocall, priceVideocall, 
             receivePaidMessage, priceMessage, country
         })
-        await Publication.updateMany({ userName: user.userName }, { userName: userName }, {userReceiveVideocall: receiveVideocall})
+        await Publication.updateMany(
+            { userIdCreatorPost: user._id },
+            { $set: { userName: userName ?? user.userName, userReceiveVideocall: receiveVideocall ?? user.receiveVideocall } }
+        )
         res.status(200).json({ message: "User updated!" });
 
     } catch (error) {
@@ -102,22 +103,20 @@ export const pictureProfile = async (req, res, next) => {
     try {
         const user = await User.findById(req.userId, { password: 0 })
 
-        if (!user) return;
-        if (!req.files) return;
+        if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
+        const files = req.files?.image
+        if (!files?.length) return res.status(400).json({ message: "No se recibió una imagen" });
 
         let obj = {}
-        if (req.files) {
-            const files = req.files['image']
-            if (files) {
-                console.log(files)
-                for (const file of files) {
-                    const result = await uploadImage({ filePath: file.path })
-                    obj = {
-                        public_id: result.public_id,
-                        secure_url: result.secure_url,
-                    }
-                    await fs.unlink(file.path)
+        for (const file of files) {
+            try {
+                const result = await uploadImage({ filePath: file.path })
+                obj = {
+                    public_id: result.key,
+                    secure_url: result.url,
                 }
+            } finally {
+                await fs.remove(file.path)
             }
         }
         user.profilePicture = obj
@@ -151,15 +150,9 @@ export const deleteAccount = async (req, res, next) => {
             }
         })
 
-        const wallet = await Wallet.find({
-            _id: {
-                $in: myUser.wallet
-            }
-        })
-
-        const postsDeleted = await Publication.deleteMany({ _id: allPosts })
-        const walletDeleted = await Wallet.deleteOne({ _id: wallet._id })
-        const userDeleted = await User.deleteOne({ myUser })
+        const postsDeleted = await Publication.deleteMany({ _id: { $in: allPostsToDelete } })
+        const walletDeleted = await Wallet.deleteOne({ _id: myUser.wallet })
+        const userDeleted = await User.deleteOne({ _id: myUser._id })
         res.status(200).json({ message: `Info deleted`, postsDeleted, userDeleted, walletDeleted })
     } catch (error) {
         console.log(error)

@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon --experimental-modules --es-module-specifier-resolution=node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "author": "joel julian durand",
   "license": "ISC",
@@ -26,12 +26,12 @@
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
     "jsonwebtoken": "^9.0.2",
-    "mercadopago": "^2.8.0",
+    "mercadopago": "^3.2.0",
     "mime-types": "^3.0.1",
     "mongoose": "^8.18.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
-    "nodemailer": "^7.0.6",
+    "nodemailer": "^9.0.3",
     "pg": "^8.16.3",
     "pg-hstore": "^2.3.4",
     "resend": "^6.0.2",

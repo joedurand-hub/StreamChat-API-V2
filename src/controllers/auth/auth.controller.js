@@ -5,10 +5,14 @@ import { generateRandomCode } from "../../libs/randomeCodes.js";
 import { transporter } from "../../libs/nodemailer.js";
 import Code from "../../models/Code.js";
 
+const tokenSecret = () => process.env.TOKEN_KEY_JWT || 'tokentest'
 
 export const signup = async (req, res, next) => {
     try {
         const { userName, password, email } = req.body
+        if (!userName || !email || !password) {
+            return res.status(400).json({ message: "Nombre de usuario, email y contraseña son obligatorios." })
+        }
         const userNameExist = await User.findOne({ userName })
         if (userNameExist) {
             return res.status(400).json({ message: "El nombre de usuario está en uso." })
@@ -17,13 +21,13 @@ export const signup = async (req, res, next) => {
         if (emailExist) {
             return res.status(400).json({ message: "El email se encuentra en uso." })
         }
-        if (password.length >= 6 && password.length < 16) {
+        if (password.length >= 6 && password.length <= 16) {
             const user = new User({ userName, password, email })
             user.password = await user.encryptPassword(user.password)
             const userSaved = await user.save()
 
-            const token = jwt.sign({ _id: userSaved._id }, `${process.env.TOKEN_KEY_JWT}`, {
-                expiresIn: 1815000000
+            const token = jwt.sign({ _id: userSaved._id }, tokenSecret(), {
+                expiresIn: '30d'
             })
             const wallet = new Wallet({
                 user: userSaved._id
@@ -40,7 +44,9 @@ export const signup = async (req, res, next) => {
             //     // html: "<b>Hello world?</b>", // html body
             // });
             res.status(200).json({ token })
+            return
         }
+        return res.status(400).json({ message: "La contraseña debe tener entre 6 y 16 caracteres." })
 
     } catch (error) {
         console.log("Error: ", error)
@@ -52,6 +58,9 @@ export const signup = async (req, res, next) => {
 export const login = async (req, res, next) => {
     try {
         const { email, userName, password } = req.body
+        if (!password || (!email && !userName)) {
+            return res.status(400).json({ message: 'Ingresá email o usuario y contraseña.' })
+        }
         if (email !== undefined && email.length > 0 && password.length > 0) {
             const user = await User.findOne({ email })
             if (!user) {
@@ -59,10 +68,10 @@ export const login = async (req, res, next) => {
             }
             const passwordFromLogin = await user.validatePassword(password)
             if (!passwordFromLogin) return res.status(400).json({ message: 'Email o contraseña incorrectos' })
-            const token = jwt.sign({ _id: user._id }, `${process.env.TOKEN_KEY_JWT}`, {
-                expiresIn: 1815000000
+            const token = jwt.sign({ _id: user._id }, tokenSecret(), {
+                expiresIn: '30d'
             })
-            res.status(200).json({ token })
+            return res.status(200).json({ token })
         }
 
         if (userName !== undefined && userName.length > 0 && password.length > 0) {
@@ -72,11 +81,12 @@ export const login = async (req, res, next) => {
             }
             const passwordFromLogin = await user.validatePassword(password)
             if (!passwordFromLogin) return res.status(400).json('Email o contraseña incorrectos')
-            const token = jwt.sign({ _id: user._id }, `${process.env.TOKEN_KEY_JWT}`, {
-                expiresIn: 1815000000
+            const token = jwt.sign({ _id: user._id }, tokenSecret(), {
+                expiresIn: '30d'
             })
-            res.status(200).json({ token })
+            return res.status(200).json({ token })
         }
+        return res.status(400).json({ message: 'Credenciales incompletas.' })
     } catch (error) {
         console.log("error:", error)
         res.status(500).json(error)
@@ -90,7 +100,7 @@ export const logout = async (req, res, next) => {
         if (!user) {
             throw new Error("No se encontró el usuario");
         }
-        await user.save()
+        return res.status(200).json({ success: true })
     } catch (error) {
         console.log("Error: ", error)
         res.status(500).json(error)
@@ -105,8 +115,9 @@ export const reset = async (req, res, next) => {
         console.log(email, userName)
         if (email !== undefined && email.length > 0) {
             const user = await User.findOne({ email })
-            const token = jwt.sign({ _id: user._id }, `${process.env.TOKEN_KEY_JWT}`, {
-                expiresIn: 900000
+            if (!user) return res.status(200).json({ success: true })
+            const token = jwt.sign({ _id: user._id }, tokenSecret(), {
+                expiresIn: '15m'
             })
             await transporter.sendMail({
                 from: 'joeljuliandurand@gmail.com',
@@ -120,8 +131,9 @@ export const reset = async (req, res, next) => {
         }
         if (userName !== undefined && userName.length > 0) {
             const user = await User.findOne({ userName })
-            const token = jwt.sign({ _id: user._id }, `${process.env.TOKEN_KEY_JWT}`, {
-                expiresIn: 900000
+            if (!user) return res.status(200).json({ success: true })
+            const token = jwt.sign({ _id: user._id }, tokenSecret(), {
+                expiresIn: '15m'
             })
             // const verificationLink = `https://www.groob.app/reset-password/${token}}`
             await transporter.sendMail({
@@ -148,16 +160,14 @@ export const sendVerificationCode = async (req, res, next) => {
             res.status(403).json({message: "No has ingresado un email"})
             return 
         } 
-        const randomCode = generateRandomCode()
-        
-        const newCode = new Code({ email, code: randomCode });
-        const codeSaved = await newCode.save();
-        console.log({codeSaved})
-        
         const user = await User.findOne({ email })
         if (!user) {
             return res.status(404).json({ message: "No se encontró el usuario con ese email" });
           }
+        const randomCode = generateRandomCode()
+        await Code.deleteMany({ email })
+        const newCode = new Code({ email, code: randomCode });
+        await newCode.save();
         await transporter.sendMail({
             from: 'joeljuliandurand@gmail.com',
             to: `${user?.email}`,
@@ -254,7 +264,7 @@ export const verifyCode = async (req, res, next) => {
       }
       const codeRecord = await Code.findOne({ email, code });
       if (!codeRecord) {
-        return res.status(404).json({ message: "Código incorrecto o no encontrado" });
+        return res.status(400).json({ message: "Código incorrecto o no encontrado" });
       }
       const now = new Date();
       const createdAt = codeRecord.createdAt;

@@ -3,29 +3,43 @@ import User from "../../models/User.js"
 
 export const createChat = async (req, res, next) => {
     try {
-        const {recivedId, senderId} = req.body
-        const user = await User.findById(req.userId);
+        const { recivedId } = req.body
+        const senderId = req.userId.toString()
+        if (!recivedId) {
+            return res.status(400).json({ message: "No se recibió el usuario destinatario" })
+        }
+        if (senderId === recivedId.toString()) {
+            return res.status(400).json({ message: "No podés crear un chat con vos mismo" })
+        }
+        const [user, recipient] = await Promise.all([
+            User.findById(senderId),
+            User.findById(recivedId)
+        ]);
 
         if (!user) {
             return res.status(404).json({ message: "Usuario no encontrado" });
         }
+        if (!recipient) {
+            return res.status(404).json({ message: "Usuario destinatario no encontrado" });
+        }
 
         const chat = await Chat.findOne({
-            members: { $all: [req.userId, recivedId] }
+            members: { $all: [senderId, recivedId.toString()] }
         });
 
         if (chat) {
             return res.status(200).json({ message: "El chat ya existe:", chat });
         }
 
-        const newChat = new Chat({ members: [senderId, recivedId] });
+        const newChat = new Chat({ members: [senderId, recivedId.toString()] });
         const result = await newChat.save();
         const chatId = result._id;
 
-        user.chats = user.chats.concat(chatId);
-        await user.save();
+        user.chats.addToSet(chatId);
+        recipient.chats.addToSet(chatId);
+        await Promise.all([user.save(), recipient.save()]);
 
-        res.status(200).json(result);
+        return res.status(201).json({ chat: result });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Ha ocurrido un error al crear el chat", error });
@@ -51,41 +65,30 @@ export const addMessage = async (chatId, senderId, remitterId, text, res) => {
             return res.status(403).json({message: "No se recibió el id del usuario receptor para agregar el mensaje"})
         }
 
+        const normalizedSenderId = senderId.toString()
+        const normalizedRemitterId = remitterId.toString()
         const newMessage = {
-            senderId,
-            remitterId,
-            text,
+            senderId: normalizedSenderId,
+            remitterId: normalizedRemitterId,
+            text: text.trim(),
             read: false,
             date: new Date(),
         };
 
-        let chat = await Chat.findById({_id: chatId})
+        const chat = await Chat.findById(chatId)
         if (!chat) {
-            console.log("Chat no encontrado, creando uno nuevo...");
-
-            const newChat = new Chat({ members: [senderId, remitterId] });
-            chat = await newChat.save();
-
-            const user = await User.findById(senderId);
-            if (user) {
-                user.chats = user.chats.concat(chat._id);
-                await user.save();
-            }
-
-            const userRemmiter = await User.findById(remitterId);
-            if (userRemmiter) {
-                userRemmiter.chats = userRemmiter.chats.concat(chat._id);
-                await userRemmiter.save();
-            }
+            return res.status(404).json({ message: "Chat no encontrado" })
         }
-
-        await Chat.findByIdAndUpdate(chatId, { 
+        if (!chat.members.includes(normalizedSenderId) || !chat.members.includes(normalizedRemitterId)) {
+            return res.status(403).json({ message: "Los usuarios no pertenecen a este chat" })
+        }
+        const updatedChat = await Chat.findByIdAndUpdate(chatId, {
                 $push: { messages: newMessage}, 
                 $inc: { messagesUnread: 1 } 
             }, { new: true, runValidators: true }
         );
 
-        res.status(200).json(newMessage);
+        return res.status(200).json({ message: newMessage, chat: updatedChat });
 
     } catch (error) {
         console.error(error);
@@ -106,7 +109,7 @@ export const userChats = async (req, res, next) => {
         const usersInMyChat = chats.map(obj => obj.members).flat();
         console.log("usersInMyChat", usersInMyChat)
 
-        const usersId = usersInMyChat.filter(member => member !== user._id);
+        const usersId = usersInMyChat.filter(member => member.toString() !== req.userId.toString());
 
         const usersExistingOnAllMyChats = await User.find({
             _id: {
@@ -177,7 +180,7 @@ export const findChat = async (req, res, next) => {
             }
             message.read = true;
         });
-        chat.messagesUnread = chat.messagesUnread - iterations
+        chat.messagesUnread = Math.max(0, chat.messagesUnread - iterations)
         await chat.save()
 
         res.status(200).json({ 
@@ -200,12 +203,13 @@ export const findChat = async (req, res, next) => {
 
 export const deleteChat = async (req, res, next) => {
     try {
-        const myId = req.userId?.toString()
-        const chat = await Chat.findByIdAndDelete({
-            members: { $all: [req.userId, req.params.secondId] }
-        })
-        // añadir la eliminación de todos los mensajes en el chat
-        res.status(200).json("Chat deleted")
+        const chat = await Chat.findOne({ _id: req.params.chatId, members: req.userId.toString() })
+        if (!chat) return res.status(404).json({ message: "Chat no encontrado" })
+        await Promise.all([
+            Chat.deleteOne({ _id: chat._id }),
+            User.updateMany({ _id: { $in: chat.members } }, { $pull: { chats: chat._id } })
+        ])
+        return res.status(200).json({ message: "Chat eliminado" })
 
     } catch (error) {
         console.log(error)

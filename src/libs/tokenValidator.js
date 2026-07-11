@@ -10,9 +10,8 @@ export const TokenValidator = async (req, res, next) => {
     try {
         const payload = jwt.verify(token, process.env.TOKEN_KEY_JWT || 'tokentest')
         req.userId = payload._id
-        next()
+        return next()
     } catch (error) {
-        res.status(401).json({ message: "Token is not valid", error: error })
-        next(error)
+        return res.status(401).json({ message: "Token is not valid", auth: false })
     }
 }

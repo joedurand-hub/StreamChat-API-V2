@@ -65,18 +65,16 @@ export const buyContentById = async (req, res, next) => {
             return res.status(404).json({ message: 'No se ha recibido un ID.' });
         }
         const userBuyer = await User.findById(req.userId)
-        const myPostsIds = userBuyer.publications.map(pub => pub._id);
-
-        if (myPostsIds.includes(postId)) {
-            console.log("estás intentando autocomprarte")
-            return res.status(400).json("No puedes autocomprarte.")
+        if (!userBuyer) {
+            return res.status(403).json({ message: 'No se han encontrado usuario y/o billetera alguna.' });
+        }
+        const myPostsIds = userBuyer.publications.map(pub => pub.toString());
+        if (myPostsIds.includes(postId.toString())) {
+            return res.status(400).json({ message: "No puedes autocomprarte." })
         }
 
         const walletBuyer = await Wallet.findOne({ user: req.userId })
-
-        if (!userBuyer || !walletBuyer) {
-            return res.status(403).json({ message: 'No se han encontrado usuario y/o billetera alguna.' });
-        }
+        if (!walletBuyer) return res.status(404).json({ message: 'Billetera no encontrada.' })
 
         const postToBuy = await Publication.findById({ _id: postId })
         if (!postToBuy) {
@@ -87,8 +85,14 @@ export const buyContentById = async (req, res, next) => {
             return res.status(400).json({ message: 'Saldo insuficiente para adquirir el contenido.' });
         }
 
-        if (postToBuy.userIdCreatorPost === userBuyer._id) {
+        if (postToBuy.userIdCreatorPost?.toString() === userBuyer._id.toString()) {
             return res.status(403).json({ message: 'No puedes autocomprarte.' });
+        }
+        if (!Number.isFinite(postToBuy.price) || postToBuy.price <= 0) {
+            return res.status(400).json({ message: 'Este contenido no requiere compra.' })
+        }
+        if (userBuyer.purchases.includes(postId.toString()) || postToBuy.buyers.includes(userBuyer._id.toString())) {
+            return res.status(200).json({ message: "El contenido ya estaba desbloqueado" })
         }
 
         const creatorContent = await User.findById({ _id: postToBuy.userIdCreatorPost })
@@ -117,8 +121,8 @@ export const buyContentById = async (req, res, next) => {
         walletBuyer.coinsTransferred = walletBuyer.coinsTransferred.concat(coinsTransferred);
         walletCreatorContent.coinsReceived = walletCreatorContent.coinsReceived.concat(coinsReceived);
 
-        userBuyer.purchases.push(postId)
-        postToBuy.buyers.push(userBuyer._id)
+        userBuyer.purchases.addToSet(postId.toString())
+        postToBuy.buyers.addToSet(userBuyer._id.toString())
 
         const notificationData = {
             userName: userBuyer.userName,
@@ -157,6 +161,9 @@ export const sendPaidMessage = async (req, res, next) => {
       if(!userSenderPaidMessage) {
           return res.status(401).json({message: "No ha iniciado sesión"})
       }
+      if (senderId?.toString() !== req.userId.toString()) {
+          return res.status(403).json({ message: "El remitente no coincide con la sesión" })
+      }
       
     if(receivePaidMessage === false) {
         await addMessage(chatId, senderId, remitterId, text, res)
@@ -171,7 +178,11 @@ export const sendPaidMessage = async (req, res, next) => {
             return res.status(400).json({message: "No se ha encontrado tu billetera"})
         }
         
-        if(priceMessage > walletSenderPaidMessage.balance) {
+        const normalizedPrice = Number(priceMessage)
+        if(!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
+            return res.status(400).json({ message: "Precio de mensaje inválido" })
+        }
+        if(normalizedPrice > walletSenderPaidMessage.balance) {
             return res.status(400).json({message: "No tienes fondos suficientes"})
         }
         
@@ -180,7 +191,7 @@ export const sendPaidMessage = async (req, res, next) => {
         return res.status(400).json({message: "No se ha encontrado al usuario recibidor de las monedas"})
     }
     
-    if(priceMessage !== userReceiveCoinsForMessage.priceMessage) {
+    if(normalizedPrice !== userReceiveCoinsForMessage.priceMessage) {
         return res.status(400).json({message: "Los precios por mensaje no coinciden."})
     }
 
@@ -189,15 +200,15 @@ export const sendPaidMessage = async (req, res, next) => {
         return res.status(400).json({message: "No se ha encontrado la billetera del usuario receptor de monedas"})
     }
     
-    walletSenderPaidMessage.balance = walletSenderPaidMessage.balance - priceMessage
-    ReceivingUserWallet.balance = ReceivingUserWallet.balance + priceMessage
+    walletSenderPaidMessage.balance = walletSenderPaidMessage.balance - normalizedPrice
+    ReceivingUserWallet.balance = ReceivingUserWallet.balance + normalizedPrice
     
     const coinsTransferred = {
-        amount: priceMessage,
+        amount: normalizedPrice,
         receiver: userReceiveCoinsForMessage.userName,
     };
     const coinsReceived = {
-        amount: priceMessage,
+        amount: normalizedPrice,
         sender: userSenderPaidMessage.userName,
     };
     
@@ -238,8 +249,8 @@ export const getWallet = async (req, res, next) => {
         if (!req.userId) return res.status(401).json("No ha iniciado sesión")
 
         const wallet = await Wallet.findOne({ user: req.userId })
-        if (!wallet) res.status(400).json("No se ha entrado una billetera")
-        res.status(200).json(wallet)
+        if (!wallet) return res.status(404).json("No se ha encontrado una billetera")
+        return res.status(200).json(wallet)
 
     } catch (error) {
         console.log(error)
@@ -250,22 +261,32 @@ export const getWallet = async (req, res, next) => {
 
 export const updateBalanceWithHistoryPurchases = async (req, res, next) => {
     try {
-            const { coinsPurchased, price  } = req.body
-            console.log(coinsPurchased)
+            const { coinsPurchased, price, purchaseId } = req.body
+            const normalizedCoins = Number(coinsPurchased)
+            const normalizedPrice = Number(price)
+            if (!Number.isInteger(normalizedCoins) || normalizedCoins <= 0 || !Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
+                return res.status(400).json({ message: "Compra inválida" })
+            }
+            if (!purchaseId || typeof purchaseId !== 'string') {
+                return res.status(400).json({ message: "Falta el identificador de la compra" })
+            }
             const user = await User.findById(req.userId)
             if(!user) {
                 return res.status(401).json({message: "No se ha encontrado al usuario"})
             }
     
             const wallet = await Wallet.findOne({ user: req.userId })
-            if (!wallet) res.status(400).json("No se ha entrado una billetera")
-            console.log("balance", wallet.balance)
+            if (!wallet) return res.status(404).json("No se ha encontrado una billetera")
+            if (wallet.historyPurchases.some(purchase => purchase.purchaseId === purchaseId)) {
+                return res.status(200).json({ message: "La compra ya fue acreditada" })
+            }
 
-            wallet.balance = wallet.balance + coinsPurchased
+            wallet.balance = wallet.balance + normalizedCoins
             wallet.historyPurchases.push({
                 date: new Date(), 
-                price: price, 
-                amount: coinsPurchased, 
+                price: normalizedPrice,
+                amount: normalizedCoins,
+                purchaseId,
                 completed: true
             });
 

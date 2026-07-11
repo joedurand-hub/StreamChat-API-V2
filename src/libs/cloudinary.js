@@ -6,15 +6,23 @@ import mime from "mime-types"; // Asegúrate de instalarlo: npm install mime-typ
 
 dotenv.config();
 
-const s3 = new S3Client({
-  region: process.env.AMAZON_REGION.trim(),
+const region = process.env.AMAZON_REGION?.trim();
+const bucketName = process.env.AMAZON_BUCKET_NAME?.trim();
+
+const getS3 = () => {
+  if (!region || !bucketName || !process.env.ACCES_KEY_BUCKET_USER_S3 || !process.env.SECRET_ACCESS_KEY_BUCKET_USER_S3) {
+    const error = new Error("El almacenamiento de archivos no está configurado");
+    error.status = 503;
+    throw error;
+  }
+  return new S3Client({
+  region,
   credentials: {
     accessKeyId: process.env.ACCES_KEY_BUCKET_USER_S3,
     secretAccessKey: process.env.SECRET_ACCESS_KEY_BUCKET_USER_S3,
   },
-});
-
-const bucketName = process.env.AMAZON_BUCKET_NAME;
+  });
+};
 
 /* ----------------------- IMÁGENES ----------------------- */
 
@@ -30,12 +38,11 @@ export async function uploadImage({ filePath }) {
     Body: fileContent,
     ContentDisposition: "inline",
     ContentType: mime.lookup(filePath) || "image/jpeg",
-    ACL: "public-read", // Si tu bucket no permite ACL, elimina esta línea y ajusta la política del bucket
   });
 
-  await s3.send(command);
+  await getS3().send(command);
 
-  const url = `https://${bucketName}.s3.${process.env.AMAZON_REGION}.amazonaws.com/${key}`;
+  const url = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
   return { key, url };
 }
 
@@ -45,7 +52,7 @@ export async function deleteImage(key) {
     Bucket: bucketName,
     Key: key,
   });
-  await s3.send(command);
+  await getS3().send(command);
   return { key };
 }
 
@@ -61,15 +68,14 @@ export async function uploadVideo({ filePath }) {
     Bucket: bucketName,
     Key: key,
     Body: fileContent,
-    ACL: "public-read", 
     ContentType: "video/mp4", // Ajusta el Content-Type según el formato de video
   });
 
-  await s3.send(command);
+  await getS3().send(command);
 
   return {
     key,
-    url: `https://${bucketName}.s3.${process.env.AMAZON_REGION}.amazonaws.com/${key}`,
+    url: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
   };
 }
 
@@ -79,7 +85,7 @@ export async function deleteVideo(key) {
     Key: key,
   });
 
-  await s3.send(command);
+  await getS3().send(command);
 
   return { key };
 }
