@@ -1,5 +1,6 @@
 import Chat from "../../models/Chat.js"
 import User from "../../models/User.js"
+import { isUserOnline, publishToUsers } from '../../services/realtime.service.js'
 
 export const createChat = async (req, res, next) => {
     try {
@@ -41,8 +42,6 @@ export const createChat = async (req, res, next) => {
 
         return res.status(201).json({ chat: result });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Ha ocurrido un error al crear el chat", error });
         next(error);
     }
 }
@@ -88,12 +87,19 @@ export const addMessage = async (chatId, senderId, remitterId, text, res) => {
             }, { new: true, runValidators: true }
         );
 
-        return res.status(200).json({ message: newMessage, chat: updatedChat });
+        const savedMessage = updatedChat.messages[updatedChat.messages.length - 1]
+        publishToUsers(updatedChat.members, {
+            type: 'chat_message',
+            chatId: updatedChat._id.toString(),
+            message: savedMessage,
+            occurredAt: new Date().toISOString(),
+        })
+
+        return res.status(200).json({ message: savedMessage, chatId: updatedChat._id.toString() });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message });
-        next(error);
+        return res.status(500).json({ error: error.message });
     }
 }
 
@@ -101,13 +107,10 @@ export const addMessage = async (chatId, senderId, remitterId, text, res) => {
 export const userChats = async (req, res, next) => {
     try {
 
-        const user = await User.findById(req.userId);
         const chats = await Chat.find({
             members: { $in: [req.userId] }
         });
-        console.log("chats", chats)
         const usersInMyChat = chats.map(obj => obj.members).flat();
-        console.log("usersInMyChat", usersInMyChat)
 
         const usersId = usersInMyChat.filter(member => member.toString() !== req.userId.toString());
 
@@ -127,20 +130,32 @@ export const userChats = async (req, res, next) => {
             });
         });
 
-        const usersDataInTheChat = usersExistingOnAllMyChats.map(user => ({
-            id: user._id.toString(),
-            userName: user.userName,
-            profilePicture: user.profilePicture?.secure_url || null, 
-            receiveVideocall: user.receiveVideocall,
-            updatedAt: user.updatedAt,
-            chatIds: userIdToChatsMap[user._id.toString()] || [] 
-        }));
+        const chatByOtherUser = new Map()
+        chats.forEach((chat) => {
+            const otherId = chat.members.find((member) => member.toString() !== req.userId.toString())
+            if (otherId) chatByOtherUser.set(otherId.toString(), chat)
+        })
 
-        res.status(200).json(usersDataInTheChat);
+        const usersDataInTheChat = usersExistingOnAllMyChats.map(user => {
+            const chat = chatByOtherUser.get(user._id.toString())
+            const lastMessage = chat?.messages?.[chat.messages.length - 1]
+            const unreadCount = chat?.messages?.filter((message) => !message.read && message.remitterId === req.userId.toString()).length || 0
+            return {
+                id: user._id.toString(),
+                userName: user.userName,
+                profilePicture: user.profilePicture?.secure_url || null,
+                receiveVideocall: user.receiveVideocall,
+                updatedAt: chat?.updatedAt || user.updatedAt,
+                chatIds: userIdToChatsMap[user._id.toString()] || [],
+                lastMessage,
+                unreadCount,
+                isOnline: isUserOnline(user._id),
+            }
+        });
+
+        return res.status(200).json(usersDataInTheChat);
 
     } catch (error) {
-        console.log(error);
-        res.status(400).json({ message: "Error al obtener el listado de chats", error: error });
         next(error);
     }
 };
@@ -175,28 +190,30 @@ export const findChat = async (req, res, next) => {
 
         let iterations = 0;
         chat.messages.forEach((message)=> {
-            if(message.read === false) {
+            if(message.read === false && message.remitterId === req.userId.toString()) {
                 iterations = iterations + 1
+                message.read = true;
             }
-            message.read = true;
         });
         chat.messagesUnread = Math.max(0, chat.messagesUnread - iterations)
         await chat.save()
 
-        res.status(200).json({ 
-            chat, 
+        const chatData = chat.toObject()
+        chatData.messages = chat.messages.slice(-30)
+
+        return res.status(200).json({
+            chat: chatData,
             userName, 
             profilePicture, 
             receiveVideocall, 
             priceVideocall, 
             receivePaidMessage, 
             priceMessage, 
-            myId
+            myId,
+            isOnline: isUserOnline(user._id)
         })
 
     } catch (error) {
-        console.log(error)
-        res.status(400).json({ error: error })
         next(error)
     }
 }
@@ -212,8 +229,29 @@ export const deleteChat = async (req, res, next) => {
         return res.status(200).json({ message: "Chat eliminado" })
 
     } catch (error) {
-        console.log(error)
-        res.status(400).json(error)
-        next()
+        next(error)
+    }
+}
+
+export const getChatMessages = async (req, res, next) => {
+    try {
+        const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 30))
+        const chat = await Chat.findOne({ _id: req.params.chatId, members: req.userId.toString() }).select('messages members')
+        if (!chat) return res.status(404).json({ message: 'Chat no encontrado' })
+
+        const total = chat.messages.length
+        const requestedCursor = req.query.before === undefined ? total : Number.parseInt(req.query.before, 10)
+        const before = Number.isFinite(requestedCursor) ? Math.min(total, Math.max(0, requestedCursor)) : total
+        const start = Math.max(0, before - limit)
+        const messages = chat.messages.slice(start, before)
+
+        return res.status(200).json({
+            chatId: chat._id.toString(),
+            messages,
+            nextCursor: start > 0 ? start : null,
+            hasMore: start > 0,
+        })
+    } catch (error) {
+        next(error)
     }
 }

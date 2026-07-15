@@ -27,6 +27,7 @@ import pushRoute from './routes/push.routes.js'
 import callsRoute from './routes/calls.routes.js'
 import webhooksRoute from './routes/webhooks.routes.js'
 import { billActiveCalls } from './services/callBilling.service.js'
+import shareRoute from './routes/share.routes.js'
 
 dotenv.config()
 
@@ -153,6 +154,7 @@ app.use(storiesRoute)
 app.use(pushRoute)
 app.use(callsRoute)
 app.use(webhooksRoute)
+app.use(shareRoute)
 
 const storyCleanupTimer = setInterval(() => {
   removeExpiredStoryFiles().catch(error => console.error('No se pudieron limpiar historias expiradas', error))

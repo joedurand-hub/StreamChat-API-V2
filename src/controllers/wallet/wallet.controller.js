@@ -1,6 +1,7 @@
 import User from '../../models/User.js'
 import Wallet from '../../models/Wallet.js'
 import Publication from '../../models/Publication.js'
+import Chat from '../../models/Chat.js'
 import { addMessage } from '../chat/chat.controller.js'
 import { transporter } from "../../libs/nodemailer.js";
 import { addNotification } from '../notifications/notifications.controller.js'
@@ -169,12 +170,24 @@ export const sendPaidMessage = async (req, res, next) => {
       }
       const recipient = await User.findById(userId || remitterId)
       if (!recipient) return res.status(404).json({ message: 'Usuario destinatario no encontrado' })
+      if (remitterId?.toString() !== recipient._id.toString()) {
+          return res.status(403).json({ message: 'El destinatario no coincide con la conversación' })
+      }
+      const normalizedText = typeof text === 'string' ? text.trim() : ''
+      if (!normalizedText || normalizedText.length > 500) {
+          return res.status(400).json({ message: 'El mensaje debe tener entre 1 y 500 caracteres' })
+      }
+      const chatExists = await Chat.exists({
+          _id: chatId,
+          members: { $all: [req.userId.toString(), recipient._id.toString()] },
+      })
+      if (!chatExists) return res.status(404).json({ message: 'Chat no encontrado' })
       const isPaidMessage = Boolean(recipient.receivePaidMessage)
       const serverPrice = Number(recipient.priceMessage) || 0
       
     if(!isPaidMessage) {
         await sendPushSafely(recipient._id, { title: contextType === 'story_reply' ? 'Respuesta a tu historia' : 'Mensaje nuevo', body: contextType === 'story_reply' ? userSenderPaidMessage.userName + ' respondió tu historia' : userSenderPaidMessage.userName + ' te envió un mensaje', data: { type: contextType === 'story_reply' ? 'story_reply' : 'message', chatId, senderId: userSenderPaidMessage._id.toString(), storyId } })
-        await addMessage(chatId, senderId, remitterId, text, res)
+        await addMessage(chatId, senderId, remitterId, normalizedText, res)
     } else {
     
         if(!userId) {
@@ -239,7 +252,7 @@ export const sendPaidMessage = async (req, res, next) => {
         if(transactionSuccess) {
             await sendPushSafely(userReceiveCoinsForMessage._id, { title: 'Mensaje pago recibido', body: 'Recibiste un mensaje pago de ' + userSenderPaidMessage.userName, data: { type: 'paid_message', chatId, senderId: userSenderPaidMessage._id.toString() } })
             console.log({transactionSuccess})
-            await addMessage(chatId, senderId, remitterId, text, res)
+            await addMessage(chatId, senderId, remitterId, normalizedText, res)
         }
     }
     } catch (error) {
