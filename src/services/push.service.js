@@ -2,9 +2,25 @@ import User from '../models/User.js'
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 
+const preferenceByType = {
+  message: 'messages',
+  paid_message: 'paidMessages',
+  content_purchase: 'contentPurchases',
+  story_reply: 'storyReplies',
+  incoming_call: 'calls',
+  call_accepted: 'calls',
+  call_rejected: 'calls',
+  balance_credited: 'balanceCredits',
+  withdrawal_status: 'withdrawals',
+}
+
 export const sendPushToUser = async (userId, { title, body, data = {}, categoryId, priority = 'high' }) => {
-  const user = await User.findById(userId).select('pushTokens expoPushToken')
+  const user = await User.findById(userId).select('pushTokens expoPushToken notificationPreferences')
   if (!user) return []
+  const preferences = user.notificationPreferences
+  if (preferences?.master === false) return []
+  const preferenceKey = preferenceByType[data?.type]
+  if (preferenceKey && preferences?.[preferenceKey] === false) return []
   const tokens = [...new Set([...(user.pushTokens || []).map(item => item.token), user.expoPushToken].filter(token => typeof token === 'string' && /^Expo(nent)?PushToken\[/.test(token)))]
   if (!tokens.length) return []
   const messages = tokens.map(to => ({ to, title, body, data, sound: 'default', priority, channelId: categoryId === 'incoming_call' ? 'calls' : 'default', categoryId }))

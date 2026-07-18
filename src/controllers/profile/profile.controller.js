@@ -73,7 +73,7 @@ export const updateProfile = async (req, res, next) => {
         const {
             userName, description, birthday, email, firstName, lastName,
             viewExplicitContent, phone, gender, expoPushToken, receiveVideocall, priceVideocall,
-            receivePaidMessage, priceMessage, country
+            receivePaidMessage, priceMessage, country, notificationPreferences
         } = req.body;
         if (!req.body) return res.status(400).json({ message: "No se ha recibido un body" })
 
@@ -83,7 +83,7 @@ export const updateProfile = async (req, res, next) => {
         await User.findOneAndUpdate({ _id: user._id }, {
             userName, description, birthday, email, firstName, lastName,
             viewExplicitContent, phone, gender, expoPushToken, receiveVideocall, priceVideocall, 
-            receivePaidMessage, priceMessage, country
+            receivePaidMessage, priceMessage, country, notificationPreferences
         })
         await Publication.updateMany(
             { userIdCreatorPost: user._id },

@@ -76,6 +76,16 @@ const userSchema = new Schema({
     deviceId: { type: String },
     updatedAt: { type: Date, default: Date.now },
   }],
+  notificationPreferences: {
+    master: { type: Boolean, default: true },
+    messages: { type: Boolean, default: true },
+    paidMessages: { type: Boolean, default: true },
+    contentPurchases: { type: Boolean, default: true },
+    storyReplies: { type: Boolean, default: true },
+    calls: { type: Boolean, default: true },
+    balanceCredits: { type: Boolean, default: true },
+    withdrawals: { type: Boolean, default: true },
+  },
   publications: [
     {
       type: Schema.Types.ObjectId,
